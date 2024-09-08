@@ -12,17 +12,17 @@ SCOPES = os.environ.get("SCOPES").split(",")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 RANGE = os.environ.get("RANGE")
 
-credientials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-gsheets = build("sheets", "v4", credentials=credientials).spreadsheets()
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+)
+gsheets = build("sheets", "v4", credentials=credentials).spreadsheets()
+
 
 def fetch_rows():
-  try:
-    result = (
-        gsheets.values()
-        .get(spreadsheetId=SPREADSHEET_ID, range=RANGE)
-        .execute()
-    )
-    return True
-  except HttpError as err:
-    return False
+    try:
+        result = (
+            gsheets.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE).execute()
+        )
+        return True
+    except HttpError as err:
+        return False

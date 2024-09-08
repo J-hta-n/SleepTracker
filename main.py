@@ -20,7 +20,9 @@ async def get_root():
 @app.get("/setWebhook")
 async def set_webhook():
     async with httpx.AsyncClient() as request:
-        response = await request.post(TELEBOT_URL + "/setWebhook?url=" + WEBHOOK_URL + "/message")
+        response = await request.post(
+            TELEBOT_URL + "/setWebhook?url=" + WEBHOOK_URL + "/message"
+        )
         data = response.json()
     return data
 
@@ -40,7 +42,7 @@ class Commands:
 
 
 def parse_command(text: str):
-    if not text or text.startswith('/') or text[1:] not in Commands.choices:
+    if not text or text.startswith("/") or text[1:] not in Commands.choices:
         return None
     return text[1:]
 
@@ -48,20 +50,27 @@ def parse_command(text: str):
 def parse_request(req) -> tuple:
     text: str = req["message"]["text"]
     chat_id: int = req["message"]["chat"]["id"]
-    date: datetime = datetime.fromtimestamp(req["message"]["date"], tz=pytz.timezone('Asia/Singapore'))
+    date: datetime = datetime.fromtimestamp(
+        req["message"]["date"], tz=pytz.timezone("Asia/Singapore")
+    )
     command: str = parse_command(text)
     return (
-        command, {
+        command,
+        {
             "chat_id": chat_id,
             "date": date,
-        }
+        },
     )
+
 
 async def send_message(chat_id: int, text: str):
     async with httpx.AsyncClient() as request:
-        response = await request.post(f"{TELEBOT_URL}/sendMessage?chat_id={chat_id}&text={text}")
+        response = await request.post(
+            f"{TELEBOT_URL}/sendMessage?chat_id={chat_id}&text={text}"
+        )
         data = response.json()
     return data
+
 
 async def execute_command(command: str, context):
     if not command:
