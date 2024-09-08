@@ -8,7 +8,6 @@ from fastapi import FastAPI, Request
 
 TELEBOT_URL = os.environ.get("TELEBOT_URL")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-logging.info(TELEBOT_URL)
 
 app = FastAPI()
 
@@ -24,6 +23,7 @@ async def set_webhook():
         response = await request.post(
             TELEBOT_URL + "/setWebhook?url=" + WEBHOOK_URL + "/message"
         )
+        logging.info(TELEBOT_URL + "/setWebhook?url=" + WEBHOOK_URL + "/message")
         data = response.json()
     return data
 
