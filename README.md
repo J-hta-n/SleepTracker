@@ -8,7 +8,12 @@ source venv/bin/activate
 pip3 install -r requirements.txt
 ```
 
-# SleepTracker
+# Pre-commit hook
 
-- To serve webhook locally and interact with telegram API, first start server with `fastapi dev main.py` (ensure it runs on localhost port 8000),
-  then run `ngrok http http://localhost:8000` and set WEBHOOK_URL to be the public domain given by ngrok
+- If pre-commit is not yet installed run ` pre-commit install`
+- Run `pre-commit run --all` before every commit
+
+# Running SleepTracker
+
+- To serve webhook locally, first obtain WEBHOOK_URL by running `ngrok http <PORT>` and copying the public domain given by ngrok to your local env file
+- Then start the server with `python3 bot.py` on a separate terminal, which sets the webhook upon bot instantiation
