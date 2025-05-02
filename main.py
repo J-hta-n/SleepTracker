@@ -9,10 +9,7 @@ from telegram.ext import (
 )
 from supabase import create_client, Client
 
-import json
 import os
-import uuid
-import asyncio
 
 TELEBOT_URL = os.environ.get("TELEBOT_URL")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")

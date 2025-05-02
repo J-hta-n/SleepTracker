@@ -1,4 +1,2 @@
-python-telegram-bot
-asyncio
-supabase
-asyncpg
+python-telegram-bot[webhooks]==22.0
+supabase==2.15.1
