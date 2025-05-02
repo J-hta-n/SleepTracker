@@ -46,12 +46,12 @@ class Commands:
 
 
 def parse_command(text: str):
-    if not text or text.startswith("/") or text[1:] not in Commands.choices:
+    if not text or not text.startswith("/") or text[1:] not in Commands.choices:
         return None
     return text[1:]
 
 
-def parse_request(req) -> tuple:
+def parse_request(req):
     text: str = req["message"]["text"]
     chat_id: int = req["message"]["chat"]["id"]
     date: datetime = datetime.fromtimestamp(
@@ -79,7 +79,13 @@ async def send_message(chat_id: int, text: str):
 async def execute_command(command: str, context):
     if not command:
         msg = "Invalid command; refer to help for more info"
-        await send_message(chat_id=context["chat_id"], text=msg)
+        await send_message(context["chat_id"], msg)
         return {"error": msg}
-    # TODO: Add state handling for each command
+    if command == Commands.SLEEP:
+        await handle_record_sleep(context)
     return {"msg": "command executed successfully"}
+
+
+async def handle_record_sleep(context):
+    chat_id = context["chat_id"]
+    await send_message(chat_id, msg)
