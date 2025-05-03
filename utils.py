@@ -11,13 +11,12 @@ def get_sleep_date(dt: datetime) -> datetime:
 
 def can_record_sleep_now(dt: datetime) -> bool:
     # Set sleep window to prevent accidental entries
-    # return dt.hour >= 20 or dt.hour < 12
-    return True
+    return dt.hour >= 20 or dt.hour < 12
 
 
 def can_record_wakeup_now(dt: datetime) -> bool:
     # Set wakeup window to prevent accidental entries
-    return dt.hour >= 3
+    return dt.hour >= 3 and dt.hour < 20
 
 
 def parse_duration(text: str) -> timedelta:
