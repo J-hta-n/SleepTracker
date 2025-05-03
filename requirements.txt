@@ -1,2 +1,9 @@
+fastapi==0.115.12
+google_api_python_client==2.169.0
+httpx==0.28.1
+protobuf==6.30.2
 python-telegram-bot[webhooks]==22.0
+python_dateutil==2.9.0.post0
+pytz==2024.1
+SQLAlchemy==2.0.40
 supabase==2.15.1
