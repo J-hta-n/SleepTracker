@@ -15,5 +15,13 @@ pip3 install -r requirements.txt
 
 # Running SleepTracker
 
-- To serve webhook locally, first obtain WEBHOOK_URL by running `ngrok http <PORT>` and copying the public domain given by ngrok to your local env file
-- Then start the server with `python3 bot.py` on a separate terminal, which sets the webhook upon bot instantiation
+- To serve webhook locally, first obtain WEBHOOK_URL by running `ngrok http <PORT>` and copying the public domain given by ngrok to your local env file, then start the server with `python3 bot.py` on a separate terminal which sets the webhook upon bot instantiation
+- To serve webhook publicly, Koyeb was used to deploy the server on a public WEBHOOK_URL, which was then reconfigured in Koyeb secrets. Only after the first deployment would the webhook need to be manually set by running
+
+```bash
+  curl -X POST "https://api.telegram.org/bot<TELEBOT_TOKEN>/setWebhook" \
+   -d url=WEBHOOK_URL \
+   -d secret_token=SECRET_TOKEN
+```
+
+- Subsequently, as long as WEBHOOK_URL doesn't change, future deployments will set the correct webhook automatically
