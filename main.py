@@ -2,8 +2,6 @@ import logging
 import os
 from datetime import datetime, time, timedelta
 
-import pytz
-from dateutil import parser
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -16,11 +14,23 @@ from telegram.ext import (
 )
 
 from database import supabase
-from utils import (
+from date_utils import (
+    TIMEZONE,
     can_record_sleep_now,
     can_record_wakeup_now,
+    get_default_alarm_time,
+    get_default_bedtime,
+    get_default_sleep_time,
+    get_default_wakeup_time,
+    get_readable_date,
+    get_readable_duration,
+    get_readable_time,
     get_sleep_date,
-    human_readable_duration,
+)
+from parsers import (
+    parse_24_hour_time_format,
+    parse_datetime_string,
+    parse_day_month_format,
     parse_duration,
 )
 
@@ -35,7 +45,7 @@ TELEBOT_URL = os.environ.get("TELEBOT_URL")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 TELEBOT_TOKEN = os.environ.get("TELEBOT_TOKEN")
 SECRET_TOKEN = os.environ.get("SECRET_TOKEN")
-PORT = int(os.environ.get("PORT", "8443"))
+PORT = int(os.environ.get("PORT", "8000"))
 
 
 # Conversation states
@@ -48,9 +58,6 @@ EDIT_ENERGY_SCORE = 5
 EDIT_CLARITY_SCORE = 6
 EDIT_FORM = 7
 ADD_ENTRY = 8
-
-# TODO: Allow for timezone customization
-DEFAULT_TIMEZONE = pytz.timezone("Asia/Singapore")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -86,7 +93,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def sleep_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Records current time as bedtime."""
     user_id = update.effective_user.id
-    cur_datetime = datetime.now(DEFAULT_TIMEZONE)
+    cur_datetime = datetime.now(TIMEZONE)
 
     if not can_record_sleep_now(cur_datetime):
         await update.message.reply_text(
@@ -106,7 +113,7 @@ async def sleep_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if response.data:
         await update.message.reply_text(
-            f"You already logged bedtime for {sleep_date.strftime('%-d %b')} "
+            f"You already logged bedtime for {get_readable_date(sleep_date)} "
             "(sleep date = date which user wakes up, not when bedtime is recorded).\n"
             "Please use /edit instead to change it."
         )
@@ -131,7 +138,7 @@ async def sleep_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
 
     await update.message.reply_text(
-        f"Recorded bedtime at {cur_datetime.strftime('%-I:%M%p').lower()}, good night! 😴"
+        f"Recorded bedtime at {get_readable_time(cur_datetime)}, good night! 😴"
     )
     return ConversationHandler.END
 
@@ -140,7 +147,7 @@ async def wakey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Record current time as wake up time and ask for details."""
 
     user_id = update.effective_user.id
-    cur_datetime = datetime.now(DEFAULT_TIMEZONE)
+    cur_datetime = datetime.now(TIMEZONE)
 
     if not can_record_wakeup_now(cur_datetime):
         await update.message.reply_text(
@@ -160,9 +167,8 @@ async def wakey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if not response.data:
         # Create a new record with default bedtime if it doesn't exist
-        default_bedtime = DEFAULT_TIMEZONE.localize(
-            datetime.combine(cur_datetime.date() - timedelta(days=1), time(22, 0))
-        )
+        default_bedtime = get_default_bedtime(cur_datetime)
+
         supabase.table("sleep_records").insert(
             {
                 "user_id": user_id,
@@ -175,7 +181,7 @@ async def wakey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     else:
         if response.data[0]["is_submitted"]:
             await update.message.reply_text(
-                f"You already logged wakeup time for {sleep_date.strftime('%-d %b')}.\n"
+                f"You already logged wakeup time for {get_readable_date(sleep_date)}.\n"
                 "Please use /edit instead to change it."
             )
             return ConversationHandler.END
@@ -185,16 +191,14 @@ async def wakey_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 "wakeup_time": cur_datetime.isoformat(),
             }
         ).eq("user_id", user_id).eq("date", sleep_date).execute()
-        context.user_data["bedtime"] = parser.isoparse(
+        context.user_data["bedtime"] = parse_datetime_string(
             response.data[0]["bed_time"]
-        ).astimezone(DEFAULT_TIMEZONE)
+        )
 
     # Prepare form
     context.user_data["sleep_date"] = sleep_date
     context.user_data["fall_asleep"] = parse_duration("15m")
-    context.user_data["alarm"] = DEFAULT_TIMEZONE.localize(
-        datetime.combine(cur_datetime.date(), time(7, 0))
-    )
+    context.user_data["alarm"] = get_default_alarm_time(cur_datetime)
     context.user_data["wakeup"] = cur_datetime
     context.user_data["energy"] = 3
     context.user_data["clarity"] = 3
@@ -210,11 +214,11 @@ async def send_sleep_form(
     data = context.user_data
 
     text = (
-        f"🛌 **{'New ' if context.user_data.get('add_entry', None) else ''}Sleep Record for {data['sleep_date'].strftime('%-d %b')}**\n\n"
-        f"- 🛏️ Bedtime: {data['bedtime'].strftime('%I:%M %p').lower()}\n"
-        f"- ⏱️ Time to fall asleep: {human_readable_duration(data['fall_asleep'])}\n"
-        f"- ⏰ First alarm: {data['alarm'].strftime('%I:%M %p').lower()}\n"
-        f"- 🌅 Wake-up time: {data['wakeup'].strftime('%I:%M %p').lower()}\n"
+        f"🛌 **{'New ' if context.user_data.get('add_entry', None) else ''}Sleep Record for {get_readable_date(data['sleep_date'])}**\n\n"
+        f"- 🛏️ Bedtime: {get_readable_time(data['bedtime'])}\n"
+        f"- ⏱️ Time to fall asleep: {get_readable_duration(data['fall_asleep'])}\n"
+        f"- ⏰ First alarm: {get_readable_time(data['alarm'])}\n"
+        f"- 🌅 Wake-up time: {get_readable_time(data['wakeup'])}\n"
         f"- ⚡ Energy score: {data['energy']}\n"
         f"- 🧠 Clarity score: {data['clarity']}\n\n"
         "🔽 *Tap to edit:*"
@@ -299,8 +303,10 @@ async def handle_form_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     elif action == "submit_form":
         # After the user submits, save data to database or finalize form
         data = context.user_data
-        supabase.table("sleep_records").update(
+        supabase.table("sleep_records").upsert(
             {
+                "user_id": update.effective_user.id,
+                "date": data["sleep_date"].isoformat(),
                 "bed_time": data["bedtime"].isoformat(),
                 "sleep_time": (data["bedtime"] + data["fall_asleep"]).isoformat(),
                 "first_alarm_time": data["alarm"].isoformat(),
@@ -309,8 +315,6 @@ async def handle_form_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 "clarity_score": data["clarity"],
                 "is_submitted": True,
             }
-        ).eq("user_id", update.effective_user.id).eq(
-            "date", data["sleep_date"].isoformat()
         ).execute()
         await query.edit_message_text("✅ Sleep record submitted!")
         return ConversationHandler.END
@@ -322,32 +326,25 @@ async def handle_edit_bedtime(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Handle the user's input for editing bedtime."""
-
+    # Validate input
     user_input = update.message.text
-
-    try:
-        new_bedtime = datetime.strptime(user_input, "%H%M").time()
-        sleep_date = context.user_data["sleep_date"]
-        new_sleep_date = (
-            sleep_date - timedelta(days=1) if new_bedtime >= time(20, 0) else sleep_date
-        )
-
-        new_bedtime = DEFAULT_TIMEZONE.localize(
-            datetime.combine(new_sleep_date, new_bedtime)
-        )
-
-        # Update context (only update dataabase upon submission, not now)
-        context.user_data["bedtime"] = new_bedtime
-        await update.message.reply_text(
-            f"Updated bedtime to {new_bedtime.strftime('%I:%M %p').lower()}. Remember to submit the form once done with all changes!"
-        )
-
-    except ValueError:
+    valid_timestamp = parse_24_hour_time_format(user_input)
+    if not valid_timestamp:
         await update.message.reply_text(
             "Invalid format. Please use 24-hour HHMM format."
         )
         return EDIT_BEDTIME  # Restart this function
 
+    # Process and update context
+    sleep_date = context.user_data["sleep_date"]
+    new_sleep_date = (
+        sleep_date - timedelta(days=1) if valid_timestamp >= time(20, 0) else sleep_date
+    )
+    new_bedtime = TIMEZONE.localize(datetime.combine(new_sleep_date, valid_timestamp))
+    context.user_data["bedtime"] = new_bedtime
+    await update.message.reply_text(
+        f"Updated bedtime to {get_readable_time(new_bedtime)}. Remember to submit the form once done with all changes!"
+    )
     await send_sleep_form(update, context, new_message=True)
 
     return WAKEUP_FORM
@@ -357,26 +354,20 @@ async def handle_edit_fall_asleep(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Handle the user's input for editing fall asleep time."""
-
+    # Validate input
     user_input = update.message.text
-
-    # Validate and parse the input
-    try:
-        duration = parse_duration(user_input)
-
-        # Update context
-        context.user_data["fall_asleep"] = duration
-
+    duration = parse_duration(user_input)
+    if not duration:
         await update.message.reply_text(
-            f"Updated time to fall asleep to {human_readable_duration(duration)}."
+            "Invalid duration format. Try formats like '1h30m', '90m', or '1.5h'."
         )
+        return EDIT_FALL_ASLEEP
 
-    except ValueError:
-        await update.message.reply_text(
-            "Invalid format. Please use 'XhYm' or 'Xm' format."
-        )
-        return EDIT_FALL_ASLEEP  # Restart this function
-
+    # Update context
+    context.user_data["fall_asleep"] = duration
+    await update.message.reply_text(
+        f"Updated time to fall asleep to {get_readable_duration(duration)}."
+    )
     await send_sleep_form(update, context, new_message=True)
 
     return WAKEUP_FORM
@@ -384,28 +375,23 @@ async def handle_edit_fall_asleep(
 
 async def handle_edit_alarm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the user's input for editing alarm time."""
-
+    # Validate input
     user_input = update.message.text
-
-    try:
-        alarm_time = datetime.strptime(user_input, "%H%M").time()
-        alarm_time = DEFAULT_TIMEZONE.localize(
-            datetime.combine(context.user_data["sleep_date"], alarm_time)
-        )
-
-        # Update context
-        context.user_data["alarm"] = alarm_time
-
-        await update.message.reply_text(
-            f"Updated alarm time to {alarm_time.strftime('%I:%M %p').lower()}."
-        )
-
-    except ValueError:
+    timestamp = parse_24_hour_time_format(user_input)
+    if not timestamp:
         await update.message.reply_text(
             "Invalid format. Please use 24-hour HHMM format."
         )
-        return EDIT_ALARM  # Restart this function
+        return EDIT_ALARM
 
+    # Process and update context
+    alarm_time = TIMEZONE.localize(
+        datetime.combine(context.user_data["sleep_date"], alarm_time)
+    )
+    context.user_data["alarm"] = alarm_time
+    await update.message.reply_text(
+        f"Updated alarm time to {alarm_time.strftime('%I:%M %p').lower()}."
+    )
     await send_sleep_form(update, context, new_message=True)
 
     return WAKEUP_FORM
@@ -413,28 +399,23 @@ async def handle_edit_alarm(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def handle_edit_wakeup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the user's input for editing wake-up time."""
-
+    # Validate input
     user_input = update.message.text
-
-    try:
-        wakeup_time = datetime.strptime(user_input, "%H%M").time()
-        wakeup_time = DEFAULT_TIMEZONE.localize(
-            datetime.combine(context.user_data["sleep_date"], wakeup_time)
-        )
-
-        # Update context
-        context.user_data["wakeup"] = wakeup_time
-
-        await update.message.reply_text(
-            f"Updated wake-up time to {wakeup_time.strftime('%I:%M %p').lower()}."
-        )
-
-    except ValueError:
+    timestamp = parse_24_hour_time_format(user_input)
+    if not timestamp:
         await update.message.reply_text(
             "Invalid format. Please use 24-hour HHMM format."
         )
-        return EDIT_WAKEUP_TIME  # Restart this function
+        return EDIT_WAKEUP_TIME
 
+    # Process and update context
+    wakeup_time = TIMEZONE.localize(
+        datetime.combine(context.user_data["sleep_date"], wakeup_time)
+    )
+    context.user_data["wakeup"] = wakeup_time
+    await update.message.reply_text(
+        f"Updated wake-up time to {wakeup_time.strftime('%I:%M %p').lower()}."
+    )
     await send_sleep_form(update, context, new_message=True)
 
     return WAKEUP_FORM
@@ -442,25 +423,18 @@ async def handle_edit_wakeup(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_edit_energy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the user's input for editing energy score."""
-
+    # Validate input
     user_input = update.message.text
-
-    try:
-        energy_score = int(user_input)
-        if energy_score < 1 or energy_score > 5:
-            raise ValueError("Score must be between 1 and 5.")
-
-        # Update context
-        context.user_data["energy"] = energy_score
-
-        await update.message.reply_text(f"Updated energy score to {energy_score}.")
-
-    except ValueError:
+    if not user_input.isdigit() or int(user_input) < 1 or int(user_input) > 5:
         await update.message.reply_text(
-            "Invalid format. Please send a number between 1 and 5."
+            "Invalid format. Please send an integer between 1 and 5."
         )
-        return EDIT_ENERGY_SCORE  # Restart this function
+        return EDIT_ENERGY_SCORE
 
+    # Update context
+    energy_score = int(user_input)
+    context.user_data["energy"] = energy_score
+    await update.message.reply_text(f"Updated energy score to {energy_score}.")
     await send_sleep_form(update, context, new_message=True)
 
     return WAKEUP_FORM
@@ -470,25 +444,18 @@ async def handle_edit_clarity(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     """Handle the user's input for editing clarity score."""
-
+    # Validate input
     user_input = update.message.text
-
-    try:
-        clarity_score = int(user_input)
-        if clarity_score < 1 or clarity_score > 5:
-            raise ValueError("Score must be between 1 and 5.")
-
-        # Update context
-        context.user_data["clarity"] = clarity_score
-
-        await update.message.reply_text(f"Updated clarity score to {clarity_score}.")
-
-    except ValueError:
+    if not user_input.isdigit() or int(user_input) < 1 or int(user_input) > 5:
         await update.message.reply_text(
-            "Invalid format. Please send a number between 1 and 5."
+            "Invalid format. Please send an integer between 1 and 5."
         )
-        return EDIT_CLARITY_SCORE  # Restart this function
+        return EDIT_CLARITY_SCORE
 
+    # Update context
+    clarity_score = int(user_input)
+    context.user_data["clarity"] = clarity_score
+    await update.message.reply_text(f"Updated clarity score to {clarity_score}.")
     await send_sleep_form(update, context, new_message=True)
 
     return WAKEUP_FORM
@@ -508,20 +475,17 @@ async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def handle_add_form_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Validate input
     context.user_data["add_entry"] = True
-    try:
-        # Parse user input like "02/05"
-        user_input = update.message.text.strip()
-        day_month = datetime.strptime(user_input, "%d/%m")
-        year = datetime.now().year  # or handle year separately later
-        selected_date = day_month.replace(year=year)
-    except ValueError:
+    user_input = update.message.text.strip()
+    day_month = parse_day_month_format(user_input)
+    if not day_month:
         await update.message.reply_text(
             "Invalid format. Please enter the date in DD/MM format."
         )
-        return ADD_ENTRY  # Restart this function
-
-    # Check if there's an entry
+        return ADD_ENTRY
+    year = datetime.now().year
+    selected_date = day_month.replace(year=year)
     response = (
         supabase.table("sleep_records")
         .select("*")
@@ -531,94 +495,71 @@ async def handle_add_form_input(update: Update, context: ContextTypes.DEFAULT_TY
     )
     if response.data:
         await update.message.reply_text(
-            f"Sleep log already exists for {selected_date.strftime('%-d %B')}, please use /edit instead to change it."
+            f"Sleep log already exists for {get_readable_date(selected_date)}, please use /edit instead to change it."
         )
         return ConversationHandler.END
 
     # Prepare default form
-    # Create a new record with default bedtime if it doesn't exist
-    default_bedtime = DEFAULT_TIMEZONE.localize(
-        datetime.combine(selected_date - timedelta(days=1), time(22, 0))
-    )
-    default_sleep_time = DEFAULT_TIMEZONE.localize(
-        datetime.combine(selected_date - timedelta(days=1), time(22, 15))
-    )
-    default_alarm_time = DEFAULT_TIMEZONE.localize(
-        datetime.combine(selected_date, time(7, 0))
-    )
-    default_wakeup = DEFAULT_TIMEZONE.localize(
-        datetime.combine(selected_date, time(7, 15))
-    )
+    default_bedtime = get_default_bedtime(selected_date)
+    default_sleep_time = get_default_sleep_time(selected_date)
+    default_alarm_time = get_default_alarm_time(selected_date)
+    default_wakeup = get_default_wakeup_time(selected_date)
     context.user_data["bedtime"] = default_bedtime
-
-    # Prepare form
     context.user_data["sleep_date"] = selected_date
     context.user_data["fall_asleep"] = default_sleep_time - default_bedtime
     context.user_data["alarm"] = default_alarm_time
     context.user_data["wakeup"] = default_wakeup
     context.user_data["energy"] = 3
     context.user_data["clarity"] = 3
-
     await send_sleep_form(update, context, new_message=True)
+
     return WAKEUP_FORM
 
 
 async def handle_edit_form_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Valdate input
     user_input = update.message.text.strip()
-
-    try:
-        # Parse user input like "02/05"
-        day_month = datetime.strptime(user_input, "%d/%m")
-        year = datetime.now().year  # or handle year separately later
-        selected_date = day_month.replace(year=year)
-
-        # Store date in user_data for later
-        context.user_data["edit_date"] = selected_date
-        context.user_data["edit_state"] = None
-
-        # Check if there's an entry
-        response = (
-            supabase.table("sleep_records")
-            .select("*")
-            .eq("user_id", update.effective_user.id)
-            .eq("date", selected_date)
-            .execute()
-        )
-        if not response.data:
-            await update.message.reply_text(
-                "No sleep log found for that date. Please try again, or use /cancel to exit."
-            )
-            return EDIT_FORM
-        if not response.data[0]["is_submitted"]:
-            await update.message.reply_text(
-                "This sleep log has not been completed yet. Please use /wakey to submit it instead."
-            )
-            return ConversationHandler.END
-        entry = response.data[0]
-
-        # Prepare form
-        bedtime = parser.isoparse(entry["bed_time"]).astimezone(DEFAULT_TIMEZONE)
-        sleep_time = parser.isoparse(entry["sleep_time"]).astimezone(DEFAULT_TIMEZONE)
-        alarm_time = parser.isoparse(entry["first_alarm_time"]).astimezone(
-            DEFAULT_TIMEZONE
-        )
-        wakeup_time = parser.isoparse(entry["wakeup_time"]).astimezone(DEFAULT_TIMEZONE)
-        energy_score = entry["energy_score"]
-        clarity_score = entry["clarity_score"]
-        context.user_data["sleep_date"] = selected_date
-        context.user_data["bedtime"] = bedtime
-        context.user_data["fall_asleep"] = sleep_time - bedtime
-        context.user_data["alarm"] = alarm_time
-        context.user_data["wakeup"] = wakeup_time
-        context.user_data["energy"] = energy_score
-        context.user_data["clarity"] = clarity_score
-
-        await send_sleep_form(update, context, new_message=True)
-    except ValueError:
+    day_month = parse_day_month_format(user_input)
+    if not day_month:
         await update.message.reply_text(
             "Invalid format. Please enter the date in DD/MM format."
         )
         return EDIT_FORM  # Restart this function
+    year = datetime.now().year
+    selected_date = day_month.replace(year=year)
+    response = (
+        supabase.table("sleep_records")
+        .select("*")
+        .eq("user_id", update.effective_user.id)
+        .eq("date", selected_date)
+        .execute()
+    )
+    if not response.data:
+        await update.message.reply_text(
+            "No sleep log found for that date. Please try again, or use /cancel to exit."
+        )
+        return EDIT_FORM
+    if not response.data[0]["is_submitted"]:
+        await update.message.reply_text(
+            "This sleep log has not been completed yet. Please use /wakey to submit it instead."
+        )
+        return ConversationHandler.END
+
+    # Prepare form
+    entry = response.data[0]
+    bedtime = parse_datetime_string(entry["bed_time"])
+    sleep_time = parse_datetime_string(entry["sleep_time"])
+    alarm_time = parse_datetime_string(entry["first_alarm_time"])
+    wakeup_time = parse_datetime_string(entry["wakeup_time"])
+    context.user_data["sleep_date"] = selected_date
+    context.user_data["bedtime"] = bedtime
+    context.user_data["fall_asleep"] = sleep_time - bedtime
+    context.user_data["alarm"] = alarm_time
+    context.user_data["wakeup"] = wakeup_time
+    context.user_data["energy"] = entry["energy_score"]
+    context.user_data["clarity"] = entry["clarity_score"]
+    await send_sleep_form(update, context, new_message=True)
+
     return WAKEUP_FORM
 
 
@@ -627,7 +568,7 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_id = update.effective_user.id
 
     # Calculate date range
-    end_date = datetime.now(DEFAULT_TIMEZONE).date()
+    end_date = datetime.now(TIMEZONE).date()
     start_date = end_date - timedelta(days=6)  # 7 days including today
 
     # Query sleep records for the past 7 days
@@ -643,7 +584,7 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     records = response.data
 
-    if not records:
+    if not records or all(not r["is_submitted"] for r in records):
         await update.message.reply_text("No sleep records found for the past 7 days.")
         return ConversationHandler.END
 
@@ -654,22 +595,20 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not entry["is_submitted"]:
             continue
         date = entry["date"]
-        bedtime = parser.isoparse(entry["bed_time"]).astimezone(DEFAULT_TIMEZONE)
-        sleep_time = parser.isoparse(entry["sleep_time"]).astimezone(DEFAULT_TIMEZONE)
-        alarm_time = parser.isoparse(entry["first_alarm_time"]).astimezone(
-            DEFAULT_TIMEZONE
-        )
-        wakeup_time = parser.isoparse(entry["wakeup_time"]).astimezone(DEFAULT_TIMEZONE)
+        bedtime = parse_datetime_string(entry["bed_time"])
+        sleep_time = parse_datetime_string(entry["sleep_time"])
+        alarm_time = parse_datetime_string(entry["first_alarm_time"])
+        wakeup_time = parse_datetime_string(entry["wakeup_time"])
         energy_score = entry["energy_score"]
         clarity_score = entry["clarity_score"]
 
         # Calculate sleep duration if both times are available
-        duration_text = human_readable_duration(wakeup_time - sleep_time)
+        duration_text = get_readable_duration(wakeup_time - sleep_time)
 
         # Format the record
         stats_text += f"*{date}*\n"
-        stats_text += f"🛌 Bedtime: {bedtime.strftime('%-I.%M%p').lower()} (took {human_readable_duration(sleep_time - bedtime)} to fall asleep)\n"
-        stats_text += f"⏰ Wake-up time: {wakeup_time.strftime('%-I.%M%p').lower()} (alarm time: {alarm_time.strftime('%-I.%M%p').lower()}, snoozed for {human_readable_duration(wakeup_time-alarm_time)})\n"
+        stats_text += f"🛌 Bedtime: {get_readable_time(bedtime)} (took {get_readable_duration(sleep_time - bedtime)} to fall asleep)\n"
+        stats_text += f"⏰ Wake-up time: {get_readable_time(wakeup_time)} (alarm time: {get_readable_time(alarm_time)}, snoozed for {get_readable_duration(wakeup_time-alarm_time)})\n"
         stats_text += f"💤 Duration: {duration_text}\n"
         stats_text += f"🔋 Energy: {'⭐' * energy_score} ({energy_score}/5)\n"
         stats_text += f"🧠 Clarity: {'⭐' * clarity_score} ({clarity_score}/5)\n"
@@ -677,7 +616,9 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         stats_text += "\n"
 
     # Calculate averages if there are complete records
-    complete_records = [r for r in records if r.get("bedtime") and r.get("wakeup_time")]
+    complete_records = [
+        r for r in records if r.get("sleep_time") and r.get("wakeup_time")
+    ]
     if complete_records:
         total_duration_seconds = 0
         total_energy = 0
@@ -686,19 +627,10 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         clarity_count = 0
 
         for record in complete_records:
-            bedtime = record.get("bedtime")
-            wakeup_time = record.get("wakeup_time")
-
-            # Calculate duration
-            try:
-                bedtime_dt = datetime.strptime(bedtime, "%H:%M")
-                wakeup_dt = datetime.strptime(wakeup_time, "%H:%M")
-                if wakeup_dt < bedtime_dt:
-                    wakeup_dt += datetime.timedelta(days=1)
-                duration = wakeup_dt - bedtime_dt
-                total_duration_seconds += duration.seconds
-            except Exception:
-                pass
+            sleep_time = parse_datetime_string(record.get("sleep_time"))
+            wakeup_time = parse_datetime_string(record.get("wakeup_time"))
+            duration = wakeup_time - sleep_time
+            total_duration_seconds += duration.seconds
 
             # Sum up ratings
             if record.get("energy_score"):
