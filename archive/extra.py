@@ -1,15 +1,15 @@
-from datetime import datetime
-import pytz
 import json
 import os
-import httpx
-from fastapi import FastAPI, Request, Response
 from contextlib import asynccontextmanager
+from datetime import datetime
 from http import HTTPStatus
+
+import httpx
+import pytz
+from fastapi import FastAPI, Request, Response
 from telegram import Update
 from telegram.ext import Application, CommandHandler
 from telegram.ext._contexttypes import ContextTypes
-
 
 TELEBOT_TOKEN = os.environ.get("TELEBOT_TOKEN")
 TELEBOT_URL = os.environ.get("TELEBOT_URL")
