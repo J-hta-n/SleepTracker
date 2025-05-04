@@ -386,7 +386,7 @@ async def handle_edit_alarm(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     # Process and update context
     alarm_time = TIMEZONE.localize(
-        datetime.combine(context.user_data["sleep_date"], alarm_time)
+        datetime.combine(context.user_data["sleep_date"], timestamp)
     )
     context.user_data["alarm"] = alarm_time
     await update.message.reply_text(
@@ -410,7 +410,7 @@ async def handle_edit_wakeup(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Process and update context
     wakeup_time = TIMEZONE.localize(
-        datetime.combine(context.user_data["sleep_date"], wakeup_time)
+        datetime.combine(context.user_data["sleep_date"], timestamp)
     )
     context.user_data["wakeup"] = wakeup_time
     await update.message.reply_text(
